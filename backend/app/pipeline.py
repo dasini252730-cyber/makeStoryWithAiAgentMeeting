@@ -36,6 +36,7 @@ class TeamOpinion(TypedDict):
 class MuseState(TypedDict):
     world: str
     previous_summary: str
+    episode_plan: str
     draft: str
     round: int
     issues: List[str]
@@ -111,6 +112,58 @@ SUMMARY_SCHEMA = {
     "additionalProperties": False,
 }
 
+ARC_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "pitch_to_ceo": {
+            "type": "string",
+            "description": (
+                "CEO에게 보고하는 제안. 지시를 그대로 수행 보고하지 말고, 팀의 관점에서 "
+                "능동적으로 제안하세요: 왜 이런 구조/장르/톤을 택했는지, 검토했던 다른 "
+                "방향은 무엇이었는지, CEO의 결정이나 피드백이 필요한 지점(예: 장르 톤, "
+                "결말 방향, 특정 캐릭터의 생사 등)을 구체적으로 짚어주세요."
+            ),
+        },
+        "series_summary": {"type": "string", "description": "전체 이야기의 한 줄 로그라인"},
+        "episodes": {
+            "type": "array",
+            "description": "각 화의 설계. episode_number는 1부터 총 화수까지 빠짐없이 순서대로.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "episode_number": {"type": "integer"},
+                    "purpose": {"type": "string", "description": "이 화의 목적/핵심 사건"},
+                    "characters": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "이 화에 등장하는 인물",
+                    },
+                    "foreshadowing_plant": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "이 화에서 새로 심는 복선. 없으면 빈 배열.",
+                    },
+                    "foreshadowing_payoff": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "이 화에서 회수하는(이전 화에 심어둔) 복선. 없으면 빈 배열.",
+                    },
+                },
+                "required": [
+                    "episode_number",
+                    "purpose",
+                    "characters",
+                    "foreshadowing_plant",
+                    "foreshadowing_payoff",
+                ],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["pitch_to_ceo", "series_summary", "episodes"],
+    "additionalProperties": False,
+}
+
 TEAM_ROLE_PROMPTS = {
     "EditingTeam": (
         "당신은 MUSE 창작 조직의 Editing Team입니다. "
@@ -128,6 +181,38 @@ TEAM_ROLE_PROMPTS = {
         "문장/문체나 세계관 일관성은 다른 팀의 영역이니 언급하지 마세요."
     ),
 }
+
+
+def generate_arc(world: str, episode_count: int) -> dict:
+    """전체 화 로드맵을 설계한다 (Arc Team). 그래프 노드가 아니라 최초 1회 호출되는
+    독립 함수 — 화별 목적/등장인물/복선 심기·회수 계획을 미리 짜서 Story Team에
+    매 화 주입할 수 있게 한다."""
+    response = get_client().messages.create(
+        model=MODEL,
+        max_tokens=32000,
+        thinking={"type": "adaptive"},
+        output_config={
+            "effort": "high",
+            "format": {"type": "json_schema", "schema": ARC_SCHEMA},
+        },
+        system=(
+            "당신은 MUSE 창작 조직의 Arc Team입니다. "
+            "주어진 세계관을 총 N화 분량의 연재물로 설계합니다. "
+            "각 화마다 목적, 등장인물, 새로 심는 복선과 회수하는 복선을 명시해서 "
+            "전체 이야기가 일관된 기승전결과 떡밥 회수를 갖도록 하세요. "
+            "복선은 심었으면 반드시 이후 화에서 회수되어야 합니다.\n\n"
+            "당신은 CEO의 지시를 그대로 실행만 하는 하청 팀이 아니라, 창작 조직의 "
+            "전문가로서 CEO에게 먼저 기획을 제안하는 팀입니다. pitch_to_ceo 필드에 "
+            "이 구조를 택한 이유와, CEO의 결정이 필요한 지점(장르 톤, 결말 방향, "
+            "위험 요소 등)을 명시적으로 보고하세요."
+        ),
+        messages=[{
+            "role": "user",
+            "content": f"세계관: {world}\n\n총 {episode_count}화로 설계해주세요.",
+        }],
+    )
+    text = next(b.text for b in response.content if b.type == "text")
+    return json.loads(text)
 
 
 def story_team(state: MuseState) -> MuseState:
@@ -149,6 +234,11 @@ def story_team(state: MuseState) -> MuseState:
             "role": "user",
             "content": (
                 f"세계관: {state['world']}\n\n"
+                + (
+                    f"이번 화의 설계 (Arc Team): {state['episode_plan']}\n\n"
+                    if state["episode_plan"]
+                    else ""
+                )
                 + (
                     f"직전 장면 요약: {state['previous_summary']}\n\n"
                     "이 요약을 이어받아 다음 장면의 오프닝을 작성해주세요."
@@ -282,7 +372,7 @@ def summarize(state: MuseState) -> MuseState:
             "format": {"type": "json_schema", "schema": SUMMARY_SCHEMA},
         },
         system=(
-            "당신은 MUSE 창작 조직의 연속성 담당자입니다. "
+            "당신은 MUSE 창작 조직의 연속성 담당입니다. "
             "완성된 장면을 다음 장면 작성자가 참고할 수 있도록 간결하게 요약하세요."
         ),
         messages=[{
@@ -348,11 +438,14 @@ app_graph = build_graph()
 
 
 def make_initial_state(
-    world: str = "테스트 월드 (Sprint 1 더미 세계관)", previous_summary: str = ""
+    world: str = "테스트 월드 (Sprint 1 더미 세계관)",
+    previous_summary: str = "",
+    episode_plan: str = "",
 ) -> MuseState:
     return {
         "world": world,
         "previous_summary": previous_summary,
+        "episode_plan": episode_plan,
         "draft": "",
         "round": 0,
         "issues": [],
