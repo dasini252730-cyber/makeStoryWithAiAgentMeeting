@@ -31,8 +31,10 @@ const API_BASE =
 
 const AGENTS: { key: string; label: string }[] = [
   { key: "StoryTeam", label: "Story Team" },
-  { key: "EditingTeam+LoreTeam", label: "Editing + Lore + Emotion Team" },
-  { key: "PM", label: "PM (수렴 판정)" },
+  { key: "EditingTeam", label: "Editing Team" },
+  { key: "LoreTeam", label: "Lore Team" },
+  { key: "EmotionTeam", label: "Emotion Team" },
+  { key: "PM", label: "PM (조율/수렴 판정)" },
   { key: "ContinuityTeam", label: "Continuity Team" },
   { key: "Publisher", label: "Publisher" },
 ];
