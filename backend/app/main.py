@@ -35,6 +35,13 @@ app.add_middleware(
 init_db()
 
 
+@app.get("/")
+def root():
+    # Render 등 호스팅의 기본 헬스체크가 "/"를 때리는 경우가 있다. 라우트가 없어
+    # 404가 나면 정상 서비스도 비정상으로 판단해 재시작시킬 수 있으므로 둔다.
+    return {"status": "ok", "service": "muse-backend"}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
