@@ -24,7 +24,10 @@ type PipelineEvent = {
   node?: string;
   state?: MuseState;
   scene_id?: number;
+  message?: string;
 };
+
+const MAX_RECONNECTS = 20;
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -48,6 +51,8 @@ export default function Home() {
   const [state, setState] = useState<MuseState | null>(null);
   const [savedSceneId, setSavedSceneId] = useState<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const eventCountRef = useRef(0);
+  const reconnectAttemptsRef = useRef(0);
 
   const doneAgents = new Set(
     (state?.decision_log ?? []).map((entry) => entry.agent)
@@ -60,22 +65,20 @@ export default function Home() {
     return entries[entries.length - 1];
   }
 
-  function runPipeline() {
-    if (running) return;
-
-    eventSourceRef.current?.close();
-    setError(null);
-    setState(null);
-    setSavedSceneId(null);
-    setRunning(true);
-
-    const url = `${API_BASE}/pipeline/run?world=${encodeURIComponent(world)}`;
+  function connectStream(runId: string, since: number) {
+    const url = `${API_BASE}/pipeline/stream/${runId}?since=${since}`;
     const es = new EventSource(url);
     eventSourceRef.current = es;
 
     es.onmessage = (event) => {
       try {
         const payload: PipelineEvent = JSON.parse(event.data);
+        eventCountRef.current += 1;
+        reconnectAttemptsRef.current = 0; // 데이터가 오면 재연결 카운터 리셋
+
+        if (payload.node === "error" && payload.message) {
+          setError(payload.message);
+        }
         if (payload.state) {
           setState(payload.state);
         }
@@ -93,13 +96,44 @@ export default function Home() {
     });
 
     es.onerror = () => {
-      setError(
-        "백엔드 연결에 실패했거나 파이프라인 실행 중 오류가 발생했습니다. " +
-          "백엔드가 켜져 있는지, ANTHROPIC_API_KEY가 설정되어 있는지 확인하세요."
-      );
       es.close();
-      setRunning(false);
+      // 호스팅 프록시가 긴 연결을 끓는 경우가 있어(예: Render 무료 티어), 마지막으로
+      // 받은 이벤트 지점부터 자동 재연결한다. 계속 실패할 때만 사용자에게 알린다.
+      if (reconnectAttemptsRef.current >= MAX_RECONNECTS) {
+        setError(
+          "백엔드와 연결이 반복적으로 끓겨습니다. 백엔드가 켜져 있는지 확인 후 다시 시도해주세요."
+        );
+        setRunning(false);
+        return;
+      }
+      reconnectAttemptsRef.current += 1;
+      setTimeout(() => connectStream(runId, eventCountRef.current), 1000);
     };
+  }
+
+  async function runPipeline() {
+    if (running) return;
+
+    eventSourceRef.current?.close();
+    setError(null);
+    setState(null);
+    setSavedSceneId(null);
+    setRunning(true);
+    eventCountRef.current = 0;
+    reconnectAttemptsRef.current = 0;
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/pipeline/start?world=${encodeURIComponent(world)}`,
+        { method: "POST" }
+      );
+      if (!res.ok) throw new Error(`start failed: ${res.status}`);
+      const { run_id } = (await res.json()) as { run_id: string };
+      connectStream(run_id, 0);
+    } catch {
+      setError("파이프라인 시작에 실패했습니다. 백엔드가 켜져 있는지 확인하세요.");
+      setRunning(false);
+    }
   }
 
   return (
