@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>MUSE Sprint 1 데모</title>
+<style>
+  body {
+    font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    max-width: 720px;
+    margin: 40px auto;
+    padding: 0 20px;
+    color: #1a1a1a;
+    background: #fafaf8;
+  }
+  h1 { font-size: 20px; font-weight: 500; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .node {
+    background: #fff;
+    border: 1px solid #e5e3dc;
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+  }
+  .node p.title { font-size: 13px; font-weight: 500; margin: 6px 0 2px; }
+  .node p.status { font-size: 12px; color: #999; margin: 0; }
+  .node p.status.active { color: #185fa5; }
+  .node p.status.done { color: #0f6e56; }
+  button {
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid #d3d1c7;
+    background: #fff;
+    cursor: pointer;
+  }
+  button:hover { background: #f1efe8; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #round-label { font-size: 13px; color: #666; margin-left: 12px; }
+  .panel {
+    background: #fff;
+    border: 1px solid #e5e3dc;
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  .panel p.label { font-size: 13px; color: #666; margin: 0 0 8px; }
+  #draft-text { font-size: 14px; line-height: 1.7; margin: 0; }
+  .log-row {
+    border-left: 2px solid #d3d1c7;
+    padding-left: 10px;
+    margin-bottom: 8px;
+  }
+  .log-row p { margin: 0; }
+  .log-row .agent { font-size: 13px; font-weight: 500; }
+  .log-row .decision { font-size: 13px; margin-top: 2px; }
+  .log-row .reasoning { font-size: 12px; color: #999; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<h1>MUSE Sprint 1 파이프라인 데모</h1>
+<p style="font-size:13px; color:#666; margin-top:0;">Story team → Editing/Lore team 비판 라운드 → PM 수렴 판정 → Publisher</p>
+
+<div class="grid">
+  <div class="node" id="node-story">
+    <p class="title">Story team</p>
+    <p class="status">대기</p>
+  </div>
+  <div class="node" id="node-review">
+    <p class="title">Editing + Lore team</p>
+    <p class="status">대기</p>
+  </div>
+  <div class="node" id="node-pm">
+    <p class="title">PM (종료 판정)</p>
+    <p class="status">대기</p>
+  </div>
+  <div class="node" id="node-pub">
+    <p class="title">Publisher</p>
+    <p class="status">대기</p>
+  </div>
+</div>
+
+<div style="margin-bottom:16px;">
+  <button id="run-btn">▶ 파이프라인 실행</button>
+  <span id="round-label">라운드 0 / 최대 3</span>
+</div>
+
+<div class="panel">
+  <p class="label">챕터 초안</p>
+  <p id="draft-text">아직 생성되지 않음.</p>
+</div>
+
+<div class="panel">
+  <p class="label">Decision log</p>
+  <div id="log-list"></div>
+</div>
+
+<script>
+(function(){
+  const MAX_ROUNDS = 3;
+  const runBtn = document.getElementById('run-btn');
+  const roundLabel = document.getElementById('round-label');
+  const draftText = document.getElementById('draft-text');
+  const logList = document.getElementById('log-list');
+
+  const issuesByRound = [
+    "등대지기 캐릭터가 세계관 설정과 모순됨 (Lore team)",
+    "문장 시제 혼용 (Editing team)",
+    null
+  ];
+
+  function setStatus(id, text, tone){
+    const el = document.querySelector('#' + id + ' .status');
+    el.textContent = text;
+    el.className = 'status' + (tone ? ' ' + tone : '');
+  }
+
+  function addLog(agent, decision, reasoning){
+    const row = document.createElement('div');
+    row.className = 'log-row';
+    row.innerHTML =
+      '<p class="agent">' + agent + '</p>' +
+      '<p class="decision">' + decision + '</p>' +
+      '<p class="reasoning">' + reasoning + '</p>';
+    logList.appendChild(row);
+  }
+
+  function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+  async function run(){
+    runBtn.disabled = true;
+    logList.innerHTML = '';
+    draftText.textContent = '아직 생성되지 않음.';
+    ['node-story','node-review','node-pm','node-pub'].forEach(id => setStatus(id, '대기', ''));
+
+    setStatus('node-story', '작성 중…', 'active');
+    await sleep(500);
+    let draft = '주인공은 폐허가 된 등대 앞에 섰다. 바다는 조용했지만, 등대 안에서 불빛이 깜빡였다.';
+    draftText.textContent = draft;
+    addLog('Story team', '폐등대 미스터리 오프닝 채택', "테스트 월드의 '버려진 것들의 흔적' 톤과 부합");
+    setStatus('node-story', '완료', 'done');
+
+    let round = 0;
+    while (round < MAX_ROUNDS) {
+      round += 1;
+      roundLabel.textContent = '라운드 ' + round + ' / 최대 ' + MAX_ROUNDS;
+      setStatus('node-review', round + '라운드 검토 중…', 'active');
+      await sleep(600);
+
+      const issue = issuesByRound[round - 1];
+      if (issue) {
+        draft += ' (r' + round + ' 수정: ' + issue + ' 해결)';
+        draftText.textContent = draft;
+        addLog('Editing + Lore team', issue + ' 관련 수정 반영', round + '라운드 리뷰에서 발견');
+        setStatus('node-review', '이슈 발견 → 수정', 'active');
+      } else {
+        setStatus('node-review', '이슈 없음', 'done');
+        setStatus('node-pm', '수렴 판정', 'active');
+        await sleep(500);
+        addLog('PM', '이슈 없음 — 수렴 판정으로 종료', 'diff 크기가 임계값 이하로 감소함');
+        setStatus('node-pm', '종료 승인', 'done');
+        break;
+      }
+    }
+
+    if (round >= MAX_ROUNDS && issuesByRound[MAX_ROUNDS - 1]) {
+      setStatus('node-pm', '라운드 초과 종료', 'active');
+      await sleep(400);
+      addLog('PM', '라운드 초과(' + MAX_ROUNDS + '회) — 강제 종료', '비용/시간 상한 도달');
+      setStatus('node-pm', '강제 종료', 'done');
+    }
+
+    setStatus('node-pub', '조립 중…', 'active');
+    await sleep(500);
+    addLog('Publisher', '최종본 조립 완료', '발행용 포맷팅 적용');
+    setStatus('node-pub', '발행 완료', 'done');
+
+    runBtn.disabled = false;
+  }
+
+  runBtn.addEventListener('click', run);
+})();
+</script>
+
+</body>
+</html>
