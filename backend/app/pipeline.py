@@ -2,7 +2,8 @@
 MUSE Sprint 1 파이프라인 (실제 Claude API 연동)
 
 원본: demo/sprint1_pipeline.py의 mock_* 함수를 Claude API(Anthropic SDK) 호출로 교체.
-그래프 구조(story_team -> review -> publisher)와 종료 조건(Workflow.md)은 데모와 동일하게 유지.
+그래프 구조(story_team -> review -> publisher -> summarize)와 종료 조건(Workflow.md)은
+데모와 동일하게 유지.
 
 Anthropic 클라이언트는 지연 생성한다 — ANTHROPIC_API_KEY가 없어도 이 모듈을 import하고
 /health 등 파이프라인을 실행하지 않는 요청은 정상 동작해야 하기 때문.
@@ -27,11 +28,13 @@ class DecisionLog(TypedDict):
 
 class MuseState(TypedDict):
     world: str
+    previous_summary: str
     draft: str
     round: int
     issues: List[str]
     decision_log: List[DecisionLog]
     status: str
+    summary: str
 
 
 _client: Anthropic | None = None
@@ -71,6 +74,18 @@ REVIEW_SCHEMA = {
     "additionalProperties": False,
 }
 
+SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {
+            "type": "string",
+            "description": "다음 장면 작성자가 연속성을 위해 참고할 2~3문장 요약 (인물 상태, 사건, 남은 복선 위주)",
+        },
+    },
+    "required": ["summary"],
+    "additionalProperties": False,
+}
+
 
 def story_team(state: MuseState) -> MuseState:
     response = get_client().messages.create(
@@ -89,7 +104,15 @@ def story_team(state: MuseState) -> MuseState:
         ),
         messages=[{
             "role": "user",
-            "content": f"세계관: {state['world']}\n\n이 세계관에 맞는 장면 오프닝을 작성해주세요.",
+            "content": (
+                f"세계관: {state['world']}\n\n"
+                + (
+                    f"직전 장면 요약: {state['previous_summary']}\n\n"
+                    "이 요약을 이어받아 다음 장면의 오프닝을 작성해주세요."
+                    if state["previous_summary"]
+                    else "이 세계관에 맞는 장면 오프닝을 작성해주세요."
+                )
+            ),
         }],
     )
     text = next(b.text for b in response.content if b.type == "text")
@@ -157,6 +180,37 @@ def review_round(state: MuseState) -> MuseState:
     return state
 
 
+def summarize(state: MuseState) -> MuseState:
+    response = get_client().messages.create(
+        model=MODEL,
+        max_tokens=512,
+        thinking={"type": "adaptive"},
+        output_config={
+            "effort": "low",
+            "format": {"type": "json_schema", "schema": SUMMARY_SCHEMA},
+        },
+        system=(
+            "당신은 MUSE 창작 조직의 연속성 담당자입니다. "
+            "완성된 장면을 다음 장면 작성자가 참고할 수 있도록 간결하게 요약하세요."
+        ),
+        messages=[{
+            "role": "user",
+            "content": f"완성된 장면:\n{state['draft']}",
+        }],
+    )
+    text = next(b.text for b in response.content if b.type == "text")
+    data = json.loads(text)
+
+    state["summary"] = data["summary"]
+    state["decision_log"].append({
+        "round": state["round"],
+        "agent": "ContinuityTeam",
+        "decision": "장면 요약 생성 완료 (DB 반영 대기)",
+        "reasoning": "다음 장면 생성 시 연속성 확보를 위해 요약이 필요함 (Architecture.md 9단계)",
+    })
+    return state
+
+
 def should_continue(state: MuseState) -> str:
     if not state["issues"] or state["round"] >= MAX_ROUNDS:
         return "publish"
@@ -178,6 +232,7 @@ def build_graph():
     graph.add_node("story_team", story_team)
     graph.add_node("review", review_round)
     graph.add_node("publisher", publisher)
+    graph.add_node("summarize", summarize)
 
     graph.set_entry_point("story_team")
     graph.add_edge("story_team", "review")
@@ -185,7 +240,8 @@ def build_graph():
         "review": "review",
         "publish": "publisher",
     })
-    graph.add_edge("publisher", END)
+    graph.add_edge("publisher", "summarize")
+    graph.add_edge("summarize", END)
 
     return graph.compile()
 
@@ -193,12 +249,16 @@ def build_graph():
 app_graph = build_graph()
 
 
-def make_initial_state(world: str = "테스트 월드 (Sprint 1 더미 세계관)") -> MuseState:
+def make_initial_state(
+    world: str = "테스트 월드 (Sprint 1 더미 세계관)", previous_summary: str = ""
+) -> MuseState:
     return {
         "world": world,
+        "previous_summary": previous_summary,
         "draft": "",
         "round": 0,
         "issues": [],
         "decision_log": [],
         "status": "",
+        "summary": "",
     }
