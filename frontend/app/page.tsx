@@ -153,7 +153,12 @@ export default function Home() {
     }
   }
 
-  function connectArcStream(runId: string, since: number, attempt = 0) {
+  function connectArcStream(
+    runId: string,
+    since: number,
+    attempt = 0,
+    resultRef: { ok: boolean; failed: boolean } = { ok: false, failed: false }
+  ) {
     const url = `${API_BASE}/pipeline/stream/${runId}?since=${since}`;
     const es = new EventSource(url);
     let count = since;
@@ -174,9 +179,11 @@ export default function Home() {
         attempt = 0;
 
         if (payload.node === "error" && payload.message) {
+          resultRef.failed = true;
           setArcError(payload.message);
         }
         if (payload.node === "arc_saved" && payload.series_summary && payload.episodes) {
+          resultRef.ok = true;
           setArc({
             world: payload.world ?? world,
             episode_count: payload.episode_count ?? episodeCount,
@@ -193,7 +200,12 @@ export default function Home() {
     es.addEventListener("done", () => {
       es.close();
       setArcLoading(false);
-      loadArc();
+      // 에러가 이미 표시된 경우 loadArc()의 setArcError(null)가 그 메시지를
+      // 즉시 지워버려 화면엔 아무것도 안 보이는 것처럼 보이는 버그가 있었다 —
+      // 실패했을 땐 재조회하지 않고 에러 메시지를 그대로 남겨둔다.
+      if (!resultRef.failed) {
+        loadArc();
+      }
     });
 
     es.onerror = () => {
@@ -203,7 +215,7 @@ export default function Home() {
         setArcLoading(false);
         return;
       }
-      setTimeout(() => connectArcStream(runId, count, attempt + 1), 1000);
+      setTimeout(() => connectArcStream(runId, count, attempt + 1, resultRef), 1000);
     };
   }
 
