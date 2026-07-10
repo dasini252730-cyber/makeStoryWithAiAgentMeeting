@@ -280,6 +280,7 @@ export default function Home() {
         <button onClick={runPipeline} disabled={running}>
           {running ? "실행 중…" : "▶ 파이프라인 실행"}
         </button>
+        <p className="status-line">1화당 약 4,500~5,500자 분량으로 자동 작성됩니다</p>
 
         {state && (
           <p className="status-line">

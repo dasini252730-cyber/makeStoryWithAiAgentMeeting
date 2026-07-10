@@ -56,10 +56,15 @@ def get_client() -> Anthropic:
     return _client
 
 
+EPISODE_LENGTH_CHARS = "4500~5500자"
+
 STORY_TEAM_SCHEMA = {
     "type": "object",
     "properties": {
-        "draft": {"type": "string", "description": "장면 오프닝 초안 (한국어, 2~4문장)"},
+        "draft": {
+            "type": "string",
+            "description": f"완결된 한 화 분량의 본문 (한국어, 공백 포함 {EPISODE_LENGTH_CHARS}, 기승전결이 있는 하나의 완결된 화)",
+        },
         "decision": {"type": "string", "description": "채택한 방향을 한 줄로 요약"},
         "reasoning": {"type": "string", "description": "그 방향을 선택한 근거"},
     },
@@ -218,9 +223,9 @@ def generate_arc(world: str, episode_count: int) -> dict:
 
 
 def story_team(state: MuseState) -> MuseState:
-    response = get_client().messages.create(
+    with get_client().messages.stream(
         model=MODEL,
-        max_tokens=2048,
+        max_tokens=16000,
         thinking={"type": "adaptive"},
         output_config={
             "effort": "medium",
@@ -228,7 +233,9 @@ def story_team(state: MuseState) -> MuseState:
         },
         system=(
             "당신은 MUSE 창작 조직의 Story Team입니다. "
-            "주어진 세계관에 맞는 장면 오프닝 초안을 씁니다. "
+            "주어진 세계관에 맞는, 완결된 한 화 분량(공백 포함 "
+            f"{EPISODE_LENGTH_CHARS})의 본문을 씁니다. 장면 오프닝 몇 줄이 아니라 "
+            "기승전결이 있는 하나의 완결된 화를 써야 합니다. "
             "박민규 식 유머(과장된 서사시급 진지함, 스케일 미스매치 비유, 나열식 리듬)를 "
             "살리되 장르/톤 일관성을 지키세요."
         ),
@@ -242,14 +249,15 @@ def story_team(state: MuseState) -> MuseState:
                     else ""
                 )
                 + (
-                    f"직전 장면 요약: {state['previous_summary']}\n\n"
-                    "이 요약을 이어받아 다음 장면의 오프닝을 작성해주세요."
+                    f"직전 화 요약: {state['previous_summary']}\n\n"
+                    "이 요약을 이어받아 다음 화 전체를 작성해주세요."
                     if state["previous_summary"]
-                    else "이 세계관에 맞는 장면 오프닝을 작성해주세요."
+                    else "이 세계관에 맞는 1화 전체를 작성해주세요."
                 )
             ),
         }],
-    )
+    ) as stream:
+        response = stream.get_final_message()
     text = next(b.text for b in response.content if b.type == "text")
     data = json.loads(text)
 
@@ -317,9 +325,9 @@ def pm_coordinate(state: MuseState) -> MuseState:
         for agent, op in state["current_opinions"].items()
     )
 
-    response = get_client().messages.create(
+    with get_client().messages.stream(
         model=MODEL,
-        max_tokens=2048,
+        max_tokens=16000,
         thinking={"type": "adaptive"},
         output_config={
             "effort": "medium",
@@ -330,7 +338,8 @@ def pm_coordinate(state: MuseState) -> MuseState:
             "Editing/Lore/Emotion 세 팀의 의견을 종합해 이번 라운드에 실제로 반영할 "
             "사항을 결정하세요. 팀 간 의견이 충돌하면 어느 쪽을 우선했는지와 그 이유를 "
             "명시하세요. 모든 팀이 문제 없다고 판단하면 issues를 빈 배열로 반환하고 "
-            "합의 도달을 선언하세요."
+            "합의 도달을 선언하세요. revised_draft는 수정 사항을 반영한 화 전체 "
+            f"본문(공백 포함 {EPISODE_LENGTH_CHARS})이어야 하며, 일부만 발췌하면 안 됩니다."
         ),
         messages=[{
             "role": "user",
@@ -340,7 +349,8 @@ def pm_coordinate(state: MuseState) -> MuseState:
                 f"팀별 의견:\n{opinions_text}"
             ),
         }],
-    )
+    ) as stream:
+        response = stream.get_final_message()
     text = next(b.text for b in response.content if b.type == "text")
     data = json.loads(text)
 
