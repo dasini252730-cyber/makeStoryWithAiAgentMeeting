@@ -186,8 +186,9 @@ TEAM_ROLE_PROMPTS = {
 def generate_arc(world: str, episode_count: int) -> dict:
     """전체 화 로드맵을 설계한다 (Arc Team). 그래프 노드가 아니라 최초 1회 호출되는
     독립 함수 — 화별 목적/등장인물/복선 심기·회수 계획을 미리 짜서 Story Team에
-    매 화 주입할 수 있게 한다."""
-    response = get_client().messages.create(
+    매 화 주입할 수 있게 한다. 최대 32000토큰 + 고효율 사고를 쓰므로(10분 이상
+    걸릴 수 있다고 SDK가 판단) 비스트리밍 요청은 SDK가 거부해 스트리밍으로 호출한다."""
+    with get_client().messages.stream(
         model=MODEL,
         max_tokens=32000,
         thinking={"type": "adaptive"},
@@ -210,7 +211,8 @@ def generate_arc(world: str, episode_count: int) -> dict:
             "role": "user",
             "content": f"세계관: {world}\n\n총 {episode_count}화로 설계해주세요.",
         }],
-    )
+    ) as stream:
+        response = stream.get_final_message()
     text = next(b.text for b in response.content if b.type == "text")
     return json.loads(text)
 
