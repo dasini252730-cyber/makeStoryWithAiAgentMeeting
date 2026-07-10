@@ -44,6 +44,17 @@ type Arc = {
   pitch_to_ceo: string;
 };
 
+type SavedScene = {
+  id: number;
+  world: string;
+  final_draft: string;
+  summary: string;
+  decision_log: DecisionLogEntry[];
+  status: string;
+  episode_number: number | null;
+  created_at: string;
+};
+
 const MAX_RECONNECTS = 20;
 
 const API_BASE =
@@ -77,10 +88,26 @@ export default function Home() {
   const [arcLoading, setArcLoading] = useState(false);
   const [arcError, setArcError] = useState<string | null>(null);
 
+  const [savedScenes, setSavedScenes] = useState<SavedScene[]>([]);
+
   useEffect(() => {
     loadArc();
+    loadScenes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function loadScenes() {
+    try {
+      const res = await fetch(`${API_BASE}/scenes?world=${encodeURIComponent(world)}`);
+      if (!res.ok) throw new Error(`load failed: ${res.status}`);
+      const data = (await res.json()) as { scenes: SavedScene[] };
+      setSavedScenes(
+        [...data.scenes].sort((a, b) => (a.episode_number ?? 0) - (b.episode_number ?? 0))
+      );
+    } catch {
+      // 저장된 화 목록은 부가 기능이라 실패해도 조용히 무시
+    }
+  }
 
   const doneAgents = new Set(
     (state?.decision_log ?? []).map((entry) => entry.agent)
@@ -122,6 +149,7 @@ export default function Home() {
       es.close();
       setRunning(false);
       loadArc();
+      loadScenes();
     });
 
     es.onerror = () => {
@@ -378,6 +406,25 @@ export default function Home() {
           <p className="draft-box">{state.draft}</p>
         ) : (
           <p className="empty-hint">아직 생성된 장면이 없습니다.</p>
+        )}
+
+        <p className="subtitle">저장된 화 목록 ({savedScenes.length}화)</p>
+        {savedScenes.length > 0 ? (
+          <div className="scenes-list">
+            {savedScenes.map((scene) => (
+              <details key={scene.id} className="scene-item">
+                <summary>
+                  {scene.episode_number != null ? `${scene.episode_number}화` : `#${scene.id}`}
+                  {" · "}
+                  {scene.status || "완료"}
+                </summary>
+                {scene.summary && <p className="scene-summary">{scene.summary}</p>}
+                <p className="scene-draft">{scene.final_draft}</p>
+              </details>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-hint">아직 저장된 화가 없습니다.</p>
         )}
 
         <p className="subtitle">Decision Log</p>

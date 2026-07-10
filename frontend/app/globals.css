@@ -272,3 +272,46 @@ input[type="number"] {
   margin: 2px 0 0;
   color: inherit;
 }
+
+.scenes-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #33343a;
+  border-radius: 8px;
+  padding: 4px 10px;
+  margin-bottom: 16px;
+}
+
+.scene-item {
+  border-bottom: 1px solid #2a2b30;
+  padding: 8px 0;
+}
+
+.scene-item:last-child {
+  border-bottom: none;
+}
+
+.scene-item summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f2f2f4;
+}
+
+.scene-item summary:hover {
+  color: #6fd3a8;
+}
+
+.scene-summary {
+  font-size: 12px;
+  color: #9a9aa2;
+  margin: 8px 0 4px;
+}
+
+.scene-draft {
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  color: #e7e7ea;
+  margin: 4px 0 0;
+}
